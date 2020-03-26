@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 
 
@@ -190,10 +189,9 @@ def create_modules(blocks):
 
 
 # test function
-def test_parsing_and_module_creation(cfg_file):
+def test_config_parsing_and_module_creation(cfg_file):
     blocks = parse_cfg(cfg_file)
     print(create_modules(blocks))
 
-
-# if __name__ == "__main__":
-#     test_parsing_and_module_creation('cfg/yolov3.cfg')
+# test
+# test_config_parsing_and_module_creation('cfg/yolov3.cfg')
