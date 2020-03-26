@@ -188,7 +188,8 @@ def create_modules(blocks):
     return (net_info, module_list)
 
 
-# test function
+### TESTS ###
+
 def test_config_parsing_and_module_creation(cfg_file):
     blocks = parse_cfg(cfg_file)
     print(create_modules(blocks))
