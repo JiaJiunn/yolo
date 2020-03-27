@@ -5,7 +5,7 @@ import numpy as np
 import cv2 as cv
 
 from config import parse_cfg, create_modules
-from utils import predict_transform
+from utils import predict_transform, IMG_DIM
 
 
 class Darknet(nn.Module):
@@ -203,7 +203,7 @@ def process_test_input(img_file):
     img = cv.imread(img_file)
 
     # resize to input dim (specified in cfg file)
-    img = cv.resize(img, (608, 608))
+    img = cv.resize(img, (IMG_DIM, IMG_DIM))
 
     # TODO idu this fully
     # BGR -> RGB | H X W C -> C X H X W
@@ -234,5 +234,5 @@ def test_forward_pass(cfg_file, weight_file, img_file):
 
 
 # test
-test_forward_pass('cfg/yolov3.cfg', 'weights/yolov3.weights',
-                  'imgs/dog_cycle_car.png')
+# test_forward_pass('cfg/yolov3.cfg', 'weights/yolov3.weights',
+#                   'imgs/dog_cycle_car.png')

@@ -1,6 +1,11 @@
 import torch
 import numpy as np
+import cv2 as cv
 
+IMG_DIM = 608
+
+
+### TRANSFORM PREDICTION FORMAT ###
 
 def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA=False):
     """
@@ -65,6 +70,8 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA=False):
 
     return prediction
 
+
+### CHANGE TRUE DETECTION OUTPUT ###
 
 def write_results(prediction, confidence, num_classes, nms_conf=0.4):
     """
@@ -227,3 +234,37 @@ def bbox_iou(box1, box2):
     iou = inter_area / (b1_area + b2_area - inter_area)
 
     return iou
+
+
+### TRANSFORM INPUT IMAGE FORMAT ###
+
+def prep_image(img, inp_dim):
+    """
+    Convert a single image from opencv in BGR format
+    to RGB format, in the form (Batches x Channels x Height x Width).
+    """
+    # TODO details
+    img = (letterbox_image(img, (inp_dim, inp_dim)))
+    img = img[:, :, ::-1].transpose((2, 0, 1)).copy()
+    img = torch.from_numpy(img).float().div(255.0).unsqueeze(0)
+    return img
+
+
+def letterbox_image(img, inp_dim):
+    """
+    Resize image with unchanged aspect ratio using padding.
+    """
+    # TODO details
+    img_w, img_h = img.shape[1], img.shape[0]
+    w, h = inp_dim
+    new_w = int(img_w * min(w/img_w, h/img_h))
+    new_h = int(img_h * min(w/img_w, h/img_h))
+    resized_image = cv.resize(
+        img, (new_w, new_h), interpolation=cv.INTER_CUBIC)
+
+    canvas = np.full((inp_dim[1], inp_dim[0], 3), 128)
+
+    canvas[(h-new_h)//2:(h-new_h)//2 + new_h, (w-new_w) //
+           2:(w-new_w)//2 + new_w, :] = resized_image
+
+    return canvas
