@@ -1,7 +1,6 @@
 import torch
 from torch.autograd import Variable
 import cv2 as cv
-import argparse
 import time
 import random
 import os
@@ -10,66 +9,24 @@ import pickle as pkl
 import pandas as pd
 
 from darknet import Darknet
-from utils import write_results, prep_image, IMG_DIM
+from utils import write_results, prep_image, load_classes, IMG_DIM
 
 
-def arg_parse():
-    """
-    Parse arguements.
-    """
-    parser = argparse.ArgumentParser(description='YOLO v3')
+def detect(images, det, batch_size, confidence, nms_thesh, cfgfile, weightsfile, namesfile, reso):
 
-    # arguments
-    parser.add_argument("--images", dest='images', help="image/directory containing images to perform detection upon",
-                        default="imgs", type=str)
-    parser.add_argument("--det", dest='det', help="image/directory to store detections to",
-                        default="det", type=str)
-
-    parser.add_argument("--bs", dest="bs", help="batch size", default=1)
-    parser.add_argument("--confidence", dest="confidence",
-                        help="object confidence to filter predictions", default=0.5)
-    parser.add_argument("--nms_thresh", dest="nms_thresh",
-                        help="NMS threshhold", default=0.4)
-
-    parser.add_argument("--cfg", dest='cfgfile', help="config file",
-                        default="cfg/yolov3.cfg", type=str)
-    parser.add_argument("--weights", dest='weightsfile', help="weights file",
-                        default="weights/yolov3.weights", type=str)
-
-    parser.add_argument("--reso", dest='reso', help="input resolution of the network. Increase to increase accuracy. Decrease to increase speed",
-                        default="608", type=str)
-
-    return parser.parse_args()
-
-
-def load_classes(names_file):
-    """
-    Returns a dictionary of index-class names listed in [names_file].
-    """
-    fp = open(names_file, "r")
-    names = fp.read().split("\n")[:-1]
-    return names
-
-
-if __name__ == "__main__":
-    args = arg_parse()
-    images = args.images
-    batch_size = int(args.bs)
-    confidence = float(args.confidence)
-    nms_thesh = float(args.nms_thresh)
     start = 0
     CUDA = torch.cuda.is_available()
 
     # for testing, we use weights trained on the COCO dataset
     num_classes = 80
-    classes = load_classes("data/coco.names")
+    classes = load_classes(namesfile)
 
     # set up nn
-    model = Darknet(args.cfgfile)
-    model.load_weights(args.weightsfile)
+    model = Darknet(cfgfile)
+    model.load_weights(weightsfile)
 
     # parse resolution
-    model.net_info["height"] = args.reso
+    model.net_info["height"] = reso
     inp_dim = int(model.net_info["height"])
     assert inp_dim % 32 == 0
     assert inp_dim > 32
@@ -98,8 +55,8 @@ if __name__ == "__main__":
         exit()
 
     # for output images
-    if not os.path.exists(args.det):
-        os.makedirs(args.det)
+    if not os.path.exists(det):
+        os.makedirs(det)
 
     # for time keeping 2
     load_batch = time.time()
@@ -217,7 +174,7 @@ if __name__ == "__main__":
 
     def write(x, results):
         """
-        Draw bounding boxes.
+        Draws bounding boxes.
         """
         c1 = tuple(x[1:3].int())
         c2 = tuple(x[3:5].int())
@@ -243,7 +200,7 @@ if __name__ == "__main__":
 
     # save each image by prefixing "det_"
     det_names = pd.Series(imlist).apply(
-        lambda x: "{}/det_{}".format(args.det, x.split("/")[-1]))
+        lambda x: "{}/det_{}".format(det, x.split("/")[-1]))
     list(map(cv.imwrite, det_names, loaded_ims))
 
     end = time.time()  # for time keeping 9

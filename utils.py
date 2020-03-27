@@ -268,3 +268,12 @@ def letterbox_image(img, inp_dim):
            2:(w-new_w)//2 + new_w, :] = resized_image
 
     return canvas
+
+
+def load_classes(names_file):
+    """
+    Returns a dictionary of index-class names listed in [names_file].
+    """
+    fp = open(names_file, "r")
+    names = fp.read().split("\n")[:-1]
+    return names
