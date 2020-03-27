@@ -19,4 +19,4 @@ which will run YOLOv3 on the specified images, then save the processed images in
   </div>
 </p>
 
-By default, this implementation uses Joseph Redmon's YOLOv3 weights, trained on the COCO dataset. You can specify your own config file, weights file, and names file, using the `--cfg`, `--weights`, and `--names` flags respectively. You can also optionally use the `--bs`, `--confidence`, `-nms_thresh`, and `--reso` flags to specify the respective parameters as desired (use the -h flag for usage details).
+By default, this implementation uses Joseph Redmon's YOLOv3 weights, trained on the COCO dataset. You can specify your own config file, weights file, and names file, using the `--cfg`, `--weights`, and `--names` flags respectively. You can also optionally use the `--bs`, `--confidence`, `-nms_thresh`, and `--reso` flags to specify the respective parameters as desired (use the `-h` flag for usage details).
