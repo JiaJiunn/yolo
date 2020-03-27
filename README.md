@@ -13,8 +13,10 @@ Currently, this implementation only supports running YOLOv3 on image files. Simp
 which will run YOLOv3 on the specified images, then save the processed images in the destination directory.
 
 <p align="center">
-  <img src="example_output.png">
-  Example output using this implementation.
+  <img src="example_output.png" width="400">
+  <div align="center">
+    Example output using this implementation.
+  </div>
 </p>
 
 By default, this implementation uses Joseph Redmon's YOLOv3 weights, trained on the COCO dataset. You can specify your own config file, weights file, and names file, using the `--cfg`, `--weights`, and `--names` flags respectively. You can also optionally use the `--bs`, `--confidence`, `-nms_thresh`, and `--reso` flags to specify the respective parameters as desired (use the -h flag for usage details).
