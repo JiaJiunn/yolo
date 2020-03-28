@@ -12,15 +12,14 @@ For running YOLOv3 on image files, simply navigate into this directory and run
 ```
 which will run YOLOv3 on the specified images, then save the processed images in the destination directory.
 
-For videos, run
+Alternatively, for running on videos, use
 ```
-./yolo --video -<location of video>
+./yolo --video <location of video>
 ```
-or
+As for running YOLOv3 on your laptop webcam, run this instead
 ```
 ./yolo --webcam
 ```
-for running YOLOv3 on your laptop webcam.
 
 <p align="center">
   <img src="example_output.png" width="400">
