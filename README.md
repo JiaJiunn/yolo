@@ -15,7 +15,7 @@ which will run YOLOv3 on the specified images, then save the processed images in
 <p align="center">
   <img src="example_output.png" width="400">
   <div align="center">
-    Example output using this implementation.
+    Example output.
   </div>
 </p>
 
