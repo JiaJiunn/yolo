@@ -1,6 +1,6 @@
 import argparse
 
-from detect import detect
+from detect import detect_img, detect_vid
 
 
 def arg_parse():
@@ -14,6 +14,10 @@ def arg_parse():
                         default="imgs", type=str)
     parser.add_argument("--det", dest='det', help="image/directory to store detections to",
                         default="det", type=str)
+
+    parser.add_argument("--video", dest="video",
+                        help="video file to run detection on", default=None, type=str)
+    parser.add_argument('--webcam', dest="webcam", action='store_true')
 
     parser.add_argument("--bs", dest="bs", help="batch size", default=1)
     parser.add_argument("--confidence", dest="confidence",
@@ -30,6 +34,9 @@ def arg_parse():
     parser.add_argument("--names", dest='namesfile', help="dataset names file",
                         default="data/coco.names", type=str)
 
+    parser.add_argument("--verbose", dest='verbose', help="1 to print model performance, 0 otherwise",
+                        default=0, type=int)
+
     return parser.parse_args()
 
 
@@ -39,5 +46,16 @@ def cli_handler():
     confidence = float(args.confidence)
     nms_thesh = float(args.nms_thresh)
 
-    detect(args.images, args.det, batch_size, confidence,
-           nms_thesh, args.cfgfile, args.weightsfile, args.namesfile, args.reso)
+    if args.webcam:
+        # run on webcam
+        detect_vid(0, batch_size, confidence,
+                   nms_thesh, args.cfgfile, args.weightsfile, args.namesfile, args.reso, args.verbose)
+
+    elif args.video == None:
+        # run on images
+        detect_img(args.images, args.det, batch_size, confidence,
+                   nms_thesh, args.cfgfile, args.weightsfile, args.namesfile, args.reso, args.verbose)
+    else:
+        # run on video
+        detect_vid(args.video, batch_size, confidence,
+                   nms_thesh, args.cfgfile, args.weightsfile, args.namesfile, args.reso, args.verbose)
