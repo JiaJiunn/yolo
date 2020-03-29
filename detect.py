@@ -236,7 +236,7 @@ def detect_img(images, det, batch_size, confidence, nms_thesh, cfgfile, weightsf
     torch.cuda.empty_cache()
 
 
-def detect_vid(video, batch_size, confidence, nms_thesh, cfgfile, weightsfile, namesfile, reso, verbose):
+def detect_vid(video, det, batch_size, confidence, nms_thesh, cfgfile, weightsfile, namesfile, reso, verbose):
     """
     For running YOLOv3 detection on videos.
     NOTE for running on webcam, specify [video] to be 0.
@@ -257,6 +257,10 @@ def detect_vid(video, batch_size, confidence, nms_thesh, cfgfile, weightsfile, n
     inp_dim = int(model.net_info["height"])
     assert inp_dim % 32 == 0
     assert inp_dim > 32
+
+    # saving video
+    if not os.path.exists(det):
+        os.makedirs(det)
 
     # If there's a GPU availible, put the model on GPU
     if CUDA:
@@ -289,6 +293,15 @@ def detect_vid(video, batch_size, confidence, nms_thesh, cfgfile, weightsfile, n
 
     assert cap.isOpened(), 'Cannot capture source'
 
+    # output video (if not webcam)
+    if video != 0:
+        ret, frame = cap.read()
+        vw = frame.shape[1]
+        vh = frame.shape[0]
+        fourcc = cv.VideoWriter_fourcc(*'XVID')
+        outvideo = cv.VideoWriter(video.replace(
+            ".mp4", "-det.mp4"), fourcc, 20.0, (vw, vh))
+
     frames = 0
 
     start = time.time()
@@ -320,9 +333,9 @@ def detect_vid(video, batch_size, confidence, nms_thesh, cfgfile, weightsfile, n
                 #     frames / (time.time() - start)))
                 cv.imshow("frame", frame)
 
-                # quit if user presses Q
+                # end program if escape key is pressed
                 key = cv.waitKey(1)
-                if key & 0xFF == ord('q'):
+                if key == 27:
                     break
                 continue
 
@@ -351,8 +364,10 @@ def detect_vid(video, batch_size, confidence, nms_thesh, cfgfile, weightsfile, n
             # draws bb in place
             list(map(lambda x: write(x, frame), output))
 
-            # displays processed image
+            # displays & saves processed image
             cv.imshow("frame", frame)
+            if video != 0:
+                outvideo.write(frame)
 
             # end program if escape key is pressed
             key = cv.waitKey(1)

@@ -14,7 +14,7 @@ which will run YOLOv3 on the specified images, then save the processed images in
 
 For videos, run
 ```
-./yolo --video -<location of video>
+./yolo --video -<location of video> --det <destination directory>
 ```
 or
 ```

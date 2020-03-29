@@ -48,7 +48,7 @@ def cli_handler():
 
     if args.webcam:
         # run on webcam
-        detect_vid(0, batch_size, confidence,
+        detect_vid(0, args.det, batch_size, confidence,
                    nms_thesh, args.cfgfile, args.weightsfile, args.namesfile, args.reso, args.verbose)
 
     elif args.video == None:
@@ -57,5 +57,5 @@ def cli_handler():
                    nms_thesh, args.cfgfile, args.weightsfile, args.namesfile, args.reso, args.verbose)
     else:
         # run on video
-        detect_vid(args.video, batch_size, confidence,
+        detect_vid(args.video, args.det, batch_size, confidence,
                    nms_thesh, args.cfgfile, args.weightsfile, args.namesfile, args.reso, args.verbose)
