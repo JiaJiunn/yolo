@@ -8,7 +8,7 @@ The YOLOv3 object detection algorithm is based on [Joseph Redmon and Ali Farhadi
 
 After downloading the official YOLOv3 weights from [Joseph Redmon's website](https://pjreddie.com/darknet/yolo/), and placing them under `weights/`
 ```
-python3 weights_to_ckpt.py
+./weights_to_ckpt.py
 ```
 for converting the weight file into a ckpt format.
 
