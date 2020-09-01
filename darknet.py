@@ -1,238 +1,197 @@
-import torch
-import torch.nn as nn
-from torch.autograd import Variable
+from typing import Dict, List, Tuple
+
+import tensorflow as tf
 import numpy as np
-import cv2 as cv
+import cv2
 
-from config import parse_cfg, create_modules
-from utils import predict_transform, IMG_DIM
+from config import parse_cfg, _LEAKY_RELU_ALPHA, _IMG_DIM
 
 
-class Darknet(nn.Module):
+class DarkNet:
+    """Backbone for YOLOv3."""
 
-    def __init__(self, cfgfile):
+    def __init__(self, cfg_file: str) -> None:
 
-        super(Darknet, self).__init__()
-        self.blocks = parse_cfg(cfgfile)
-        self.net_info, self.module_list = create_modules(self.blocks)
-
-    def forward(self, x, CUDA):
-        """
-        [x] is the input, and
-        [CUDA] is true if we want to use GPU to accelerate the forward pass.
-        """
-        # first block just defines the net
-        modules = self.blocks[1:]
-
+        self.blocks = parse_cfg(cfg_file)
         # output feature map cache from previous layers, used by route and shortcut layers
-        outputs = {}
+        self.outputs = {}
+        self.detections = []
 
-        # NOTE for detection layer, we cannot init empty tensor then concat
-        # so we use this whack write=0 to check if encountered first tensor
-        write = 0
-        for i, module in enumerate(modules):
-            module_type = (module["type"])
+    def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
+        """Returns a list of detection outputs from each scale."""
 
-            # we already used pytorch's pre-built layers for convolutional and upsampling
-            if module_type == "convolutional" or module_type == "upsample":
-                x = self.module_list[i](x)
+        # [net] block describes the network input and training params
+        self.net_info = self.blocks[0]
 
-            elif module_type == "route":
+        detect_count = 0
+        # sequentially process block by block
+        for index, block in enumerate(self.blocks[1:]):
 
-                layers = module["layers"]
-                layers = [int(a) for a in layers]
+            # the five block types
 
-                # TODO understand this
+            if block["type"] == "convolutional":
+                input_tensor = self._parse_conv_block(input_tensor, block)
 
-                if (layers[0]) > 0:
-                    layers[0] = layers[0] - i
+            elif block["type"] == "upsample":
+                input_tensor = self._parse_upsample_block(input_tensor)
 
-                # 1 value route
-                if len(layers) == 1:
-                    x = outputs[i + (layers[0])]
+            elif block["type"] == "route":
+                input_tensor = self._parse_route_block(
+                    input_tensor, block, index)
 
-                # 2 value route
-                else:
-                    if (layers[1]) > 0:
-                        layers[1] = layers[1] - i
+            elif block["type"] == "shortcut":
+                input_tensor = self._parse_shortcut_block(
+                    input_tensor, block, index)
 
-                    map1 = outputs[i + layers[0]]
-                    map2 = outputs[i + layers[1]]
-                    x = torch.cat((map1, map2), 1)  # dim=1 for cat along depth
+            elif block["type"] == "yolo":  # 3 detection layers
+                input_tensor = self._parse_yolo_block(input_tensor, block)
+                num_classes = int(block["classes"])
+                input_tensor = tf.reshape(input_tensor, (-1, 5 + num_classes))
+                input_tensor = tf.identity(
+                    input_tensor, name=f"output_{detect_count}")
+                detect_count += 1
 
-            elif module_type == "shortcut":
-
-                # TODO understand this
-                from_ = int(module["from"])
-                x = outputs[i-1] + outputs[i+from_]
-
-            elif module_type == 'yolo':
-
-                # detection layer
-                anchors = self.module_list[i][0].anchors
-
-                # get input dimensions and num classes
-                inp_dim = int(self.net_info["height"])
-                num_classes = int(module["classes"])
-
-                # transform
-                x = x.data
-                x = predict_transform(x, inp_dim, anchors, num_classes, CUDA)
-
-                # initialize collector
-                if not write:
-                    detections = x
-                    write = 1
-
-                else:
-                    detections = torch.cat((detections, x), 1)
+                self.detections.append(input_tensor)
 
             # update feature map output cache
-            outputs[i] = x
+            self.outputs[index] = input_tensor
 
+        detections = tf.concat(self.detections, axis=0)
         return detections
 
-    def load_weights(self, weights_file):
-        """
-        Weights are only for convolution blocks only.
-        When convolution blocks have batch norm layer, then there are no bias;
-        otherwise bias weights need to be read from file.
-        """
-        fp = open(weights_file, "rb")
+    def _parse_conv_block(self, input_tensor: tf.Tensor, block: Dict[str, str]) -> tf.Tensor:
 
-        # The first 5 values are header information
-        # 1. Major version number
-        # 2. Minor Version Number
-        # 3. Subversion number
-        # 4&5. Images seen by the network (during training)
-        header = np.fromfile(fp, dtype=np.int32, count=5)
-        self.header = torch.from_numpy(header)
+        # last layer does not have batch_normalize
+        try:
+            batch_normalize = int(block["batch_normalize"])
+            bias = False
+        except:
+            batch_normalize = 0
+            bias = True
 
-        # rest of bits now represent weights
-        weights = np.fromfile(fp, dtype=np.float32)
+        filters = int(block["filters"])
+        stride = int(block["stride"])
+        kernel_size = int(block["size"])
 
-        # load weights into modules of network
-        # ptr to keep track of where we are in weights array
-        ptr = 0
-        for i in range(len(self.module_list)):
-            module_type = self.blocks[i + 1]["type"]
+        # boolean for whether we should pad the input
+        padding = int(block["pad"])
+        if padding and stride != 1:
+            pad = (kernel_size - 1) // 2
+            paddings = tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]])
+            input_tensor = tf.pad(input_tensor, paddings, mode='CONSTANT')
 
-            # weights are for convolutional blocks only, otherwise ignore
-            if module_type == "convolutional":
+        input_tensor = tf.keras.layers.Conv2D(filters, kernel_size, strides=stride, padding=(
+            'SAME' if stride == 1 else 'VALID'), use_bias=bias)(input_tensor)
 
-                # TODO understand conv batch norm structure
-                model = self.module_list[i]
+        # batch norm layer
+        if batch_normalize:
+            input_tensor = tf.keras.layers.BatchNormalization()(input_tensor)
 
-                # check if there is a batch norm layer
-                try:
-                    batch_normalize = int(self.blocks[i+1]["batch_normalize"])
-                except:
-                    batch_normalize = 0
+        # activation is either linear or leaky relu for YOLO
+        activation = block["activation"]
+        if activation == "leaky":
+            input_tensor = tf.nn.leaky_relu(
+                input_tensor, alpha=_LEAKY_RELU_ALPHA)
 
-                conv = model[0]
+        return input_tensor
 
-                if batch_normalize:
-                    # no bias
-                    bn = model[1]
+    def _parse_upsample_block(self, input_tensor: tf.Tensor) -> tf.Tensor:
 
-                    # get the number of weights of Batch Norm Layer
-                    num_bn_biases = bn.bias.numel()
+        input_shape = tf.shape(input_tensor)
+        input_tensor = tf.image.resize(
+            input_tensor, (input_shape[1] * 2, input_shape[2] * 2))
+        return input_tensor
 
-                    # load the weights
-                    bn_biases = torch.from_numpy(
-                        weights[ptr:ptr + num_bn_biases])
-                    ptr += num_bn_biases
+    def _parse_route_block(self, input_tensor: tf.Tensor, block: Dict[str, str], index: int) -> tf.Tensor:
 
-                    bn_weights = torch.from_numpy(
-                        weights[ptr: ptr + num_bn_biases])
-                    ptr += num_bn_biases
+        layers = block["layers"]
+        layers = layers.split(',')
+        # may have one of two values (start, and maybe end)
+        layers = [int(a) for a in layers]
 
-                    bn_running_mean = torch.from_numpy(
-                        weights[ptr: ptr + num_bn_biases])
-                    ptr += num_bn_biases
+        # either absolute or relative index
+        if (layers[0]) > 0:
+            layers[0] = layers[0] - index
 
-                    bn_running_var = torch.from_numpy(
-                        weights[ptr: ptr + num_bn_biases])
-                    ptr += num_bn_biases
+        # 1 value route
+        if len(layers) == 1:
+            input_tensor = self.outputs[index + (layers[0])]
 
-                    # TODO i don't fully understand loading strat below - bn is updated?
+        # 2 value route
+        else:
+            if (layers[1]) > 0:
+                layers[1] = layers[1] - index
 
-                    # cast the loaded weights into dims of model weights.
-                    bn_biases = bn_biases.view_as(bn.bias.data)
-                    bn_weights = bn_weights.view_as(bn.weight.data)
-                    bn_running_mean = bn_running_mean.view_as(bn.running_mean)
-                    bn_running_var = bn_running_var.view_as(bn.running_var)
+            fmap_1 = self.outputs[index + layers[0]]
+            fmap_2 = self.outputs[index + layers[1]]
+            input_tensor = tf.concat([fmap_1, fmap_2], axis=3)
 
-                    # copy the data to model
-                    bn.bias.data.copy_(bn_biases)
-                    bn.weight.data.copy_(bn_weights)
-                    bn.running_mean.copy_(bn_running_mean)
-                    bn.running_var.copy_(bn_running_var)
+        return input_tensor
 
-                else:
-                    # no batch norm, need to load batch norm bias
+    def _parse_shortcut_block(self, input_tensor: tf.Tensor, block: Dict[str, str], index: int) -> tf.Tensor:
 
-                    # number of biases
-                    num_biases = conv.bias.numel()
+        # skip connection
+        skip_from = int(block["from"])
+        input_tensor = self.outputs[index - 1] + \
+            self.outputs[index + skip_from]
 
-                    # load the weights
-                    conv_biases = torch.from_numpy(
-                        weights[ptr: ptr + num_biases])
-                    ptr = ptr + num_biases
+        # always linear activation
+        return input_tensor
 
-                    # reshape the loaded weights according to the dims of the model weights
-                    conv_biases = conv_biases.view_as(conv.bias.data)
+    def _parse_yolo_block(self, input_tensor: tf.Tensor, block: Dict[str, str]) -> tf.Tensor:
 
-                    # copy the data
-                    conv.bias.data.copy_(conv_biases)
+        # parse the defined anchors
+        mask = block["mask"].split(",")
+        mask = [int(x) for x in mask]
 
-                # load conv weights
-                num_weights = conv.weight.numel()
+        anchors = block["anchors"].split(",")
+        anchors = [int(a) for a in anchors]
+        anchors = [(anchors[i], anchors[i + 1])
+                   for i in range(0, len(anchors), 2)]
+        # tuple of three anchors defined in config
+        anchors = [anchors[i] for i in mask]
 
-                # cast and copy to model
-                conv_weights = torch.from_numpy(weights[ptr:ptr+num_weights])
-                ptr = ptr + num_weights
-                conv_weights = conv_weights.view_as(conv.weight.data)
-                conv.weight.data.copy_(conv_weights)
+        # transform predictions
+        input_dim = int(self.net_info["height"])
+        num_classes = int(block["classes"])
 
-### TESTS ###
+        return self._transform_predictions(input_tensor, anchors, input_dim, num_classes)
 
+    def _transform_predictions(self, prediction: tf.Tensor, anchors: List[Tuple[int, int]], input_dim: int, num_classes: int) -> tf.Tensor:
 
-def process_test_input(img_file):
+        conv_shape = tf.shape(prediction)
+        batch_size = conv_shape[0]
+        output_size = conv_shape[1]
+        stride = input_dim // conv_shape[2]
+        anchor_per_scale = len(anchors)  # TODO
 
-    img = cv.imread(img_file)
+        prediction = tf.reshape(
+            prediction, (batch_size, output_size, output_size, anchor_per_scale, 5 + num_classes))
 
-    # resize to input dim (specified in cfg file)
-    img = cv.resize(img, (IMG_DIM, IMG_DIM))
+        conv_raw_dxdy = prediction[:, :, :, :, 0:2]
+        conv_raw_dwdh = prediction[:, :, :, :, 2:4]
+        conv_raw_conf = prediction[:, :, :, :, 4:5]
+        conv_raw_prob = prediction[:, :, :, :, 5:]
 
-    # TODO idu this fully
-    # BGR -> RGB | H X W C -> C X H X W
-    img_ = img[:, :, ::-1].transpose((2, 0, 1))
+        # sets up grid base coordinates
+        y = tf.tile(tf.range(output_size, dtype=tf.int32)
+                    [:, tf.newaxis], [1, output_size])
+        x = tf.tile(tf.range(output_size, dtype=tf.int32)
+                    [tf.newaxis, :], [output_size, 1])
 
-    # add a channel at 0 (for batch) and normalise
-    img_ = img_[np.newaxis, :, :, :]/255.0
+        xy_grid = tf.concat(
+            [x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)
+        xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [
+                          batch_size, 1, 1, anchor_per_scale, 1])
+        xy_grid = tf.cast(xy_grid, tf.float32)
 
-    # convert to float then Variable (to perform tensor ops and compute grad)
-    img_ = torch.from_numpy(img_).float()
-    img_ = Variable(img_)
+        # gets transformed predictions
+        stride = tf.cast(stride, tf.float32)
+        pred_xy = (tf.sigmoid(conv_raw_dxdy) + xy_grid) * stride
+        pred_wh = (tf.exp(conv_raw_dwdh) * anchors)  # * stride
+        pred_xywh = tf.concat([pred_xy, pred_wh], axis=-1)
 
-    return img_
+        pred_conf = tf.sigmoid(conv_raw_conf)
+        pred_prob = tf.sigmoid(conv_raw_prob)
 
-
-def test_forward_pass(cfg_file, weight_file, img_file):
-
-    model = Darknet(cfg_file)
-    model.load_weights(weight_file)
-    input_img = process_test_input(img_file)
-
-    # feed into forward pass
-    pred = model(input_img, False)  # torch.cuda.is_available()
-    print(pred)
-    print(pred.size())
-    # 1 batch size
-    # 85 per row for 4 bbox attributes, 1 objectness score, and 80 class scores
-
-
-# test
-# test_forward_pass('cfg/yolov3.cfg', 'weights/yolov3.weights',
-#                   'imgs/dog_cycle_car.png')
+        return tf.concat([pred_xywh, pred_conf, pred_prob], axis=-1)
